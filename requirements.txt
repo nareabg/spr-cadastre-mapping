@@ -1,0 +1,7 @@
+duckdb>=1.0
+pandas>=2.0
+pyarrow>=14
+rapidfuzz>=3.0
+python-calamine>=0.2
+openpyxl>=3.1
+jupyter>=1.0
