@@ -4,18 +4,20 @@ This project maps each row of the SPR address file (`spr_all_unmapped_addresses.
 
 **Rule:** a row gets a `cadastre_id` only when exactly one cadastre address fits and the place, street, house and apartment all agree. Anything weaker becomes a suggestion or an issue, never a mapping.
 
-## Results (614,083 SPR rows, 12 Oct 2026 run)
+## Results (614,083 SPR rows, 13 Oct 2026 run, full cadastre in 2 parts)
 
 | status | rows | % |
 |---|---:|---:|
-| mapped · high confidence | 36,561 | 5.95 |
-| mapped · medium confidence | 70,244 | 11.44 |
-| suggested (needs a yes from a reviewer) | 32,517 | 5.30 |
-| ambiguous (several cadastre ids fit) | 28,404 | 4.63 |
-| not_found | 348,377 | 56.73 |
+| mapped · high confidence | 24,015 | 3.91 |
+| mapped · medium confidence | 80,131 | 13.05 |
+| suggested (needs a yes from a reviewer) | 30,425 | 4.95 |
+| ambiguous (several cadastre ids fit) | 55,119 | 8.98 |
+| not_found | 326,413 | 53.15 |
 | out_of_scope (foreign or blank region) | 97,980 | 15.96 |
 
-The street was found for 391,235 of the 516,103 rows inside Armenia. Most of those then stop because the house (147,974 rows) or the apartment (82,611 rows) number is not in the cadastre file. **The cadastre file has exactly 1,048,575 rows, which is Excel's limit, so the export was very likely cut off.** A re-run on a full export should map more rows.
+The cadastre is now read from `cadastre_all_data_part1.xlsx` + `cadastre_all_data_part2.xlsx` (1,391,811 distinct ids). The street was found for 393,207 of the 516,103 rows inside Armenia; most of the rest stop at the house (135,900 rows) or the apartment (75,541 rows), because that number is not in the cadastre.
+
+**Compared with the first run, which used a cadastre file cut off at Excel's row limit:** 19,181 rows gained a cadastre id (mostly because their house or apartment was in the missing part). 21,839 rows that had been mapped became ambiguous: the full cadastre holds a second id for the same address and object, which the cut-off file had hidden. Those rows are now listed under `CAD_DUPLICATE_ADDRESS` (48,714 rows in total) for the cadastre team.
 
 ## Run
 
@@ -23,12 +25,13 @@ Both ways run the same code and give the same results:
 
 ```
 pip install -r requirements.txt
-# put the two input files in data/input/
+# put the input files in data/input/: spr_all_unmapped_addresses.csv and the
+# cadastre file(s) - every file whose name starts with cadastre_all_data is read
 jupyter notebook walkthrough.ipynb   # step by step: run a step, look at its tables, go on
 python run_all.py                    # everything at once (about 8 minutes)
 ```
 
-`walkthrough.ipynb` runs each step and then shows what it produced (counts, examples, the rows behind each rule), so you can stop and check at any point. It is saved with the outputs of the 12 Oct run, so you can read it without running it.
+`walkthrough.ipynb` runs each step and then shows what it produced (counts, examples, the rows behind each rule), so you can stop and check at any point. It is saved with the outputs of the 13 Oct run, so you can read it without running it.
 
 Investigation helpers (`mapping/explore.py`, already loaded in the notebook):
 
@@ -40,6 +43,27 @@ Investigation helpers (`mapping/explore.py`, already loaded in the notebook):
 | `houses_on(street_uid)` | all cadastre addresses on one street |
 | `sample('CAD_HOUSE_NOT_FOUND', 20)` | random rows of one issue category |
 | `q("SELECT ...")` | any SQL on the working tables |
+
+## Dashboard (for non-coders)
+
+After a pipeline run, open the dashboard:
+
+```
+streamlit run dashboard/app.py      # or double-click run_dashboard.bat on Windows
+```
+
+It opens in the browser at http://localhost:8501 and runs only on your computer. The first start takes about a minute: `dashboard/prepare_data.py` reads `output/` and the cadastre file(s) in `data/input/` and writes `dashboard/data/*.parquet`. It does this again by itself whenever the pipeline outputs are newer.
+
+| tab | what you can do |
+|---|---|
+| 📊 Overview | headline counts, status split, issue categories by owner, results by region, which rule mapped how many rows, earlier mapping vs this one |
+| 🏠 Cadastre data | every cadastre id with filters (region, community, settlement, street, house, type), its data issues and how many SPR rows point at it |
+| ⚠️ SPR issues | every SPR row that is not mapped, by owner and issue category, with the streets that cause the most issues |
+| ✅ SPR mapping result | the final result file with all columns, filters on everything, and a one-row view of an SPR address next to its cadastre address |
+| 🧾 Cadastre issues | the cadastre-only checks (duplicates, spelling variants, missing names …) with lookup by id |
+| 📖 Glossary | what every status, issue category and cadastre check means |
+
+Every table can be downloaded as CSV with the filters applied. The dashboard only reads the outputs; it never changes the pipeline or its files. It shows the SPR file's earlier `match_type` for comparison only.
 
 ## Folder map
 
@@ -63,9 +87,11 @@ steps/
   s05_match_addresses.py  house, apartment, object type -> cadastre id
   s06_export.py           final status, issue categories, output files
   s07_checks.py           integrity checks (the run fails if one fails)
-data/input/               the two input files (not included)
+data/input/               the input files: SPR csv + cadastre part(s)
 output/                   results
 work/mapping.duckdb       intermediate tables, rebuilt by every run
+dashboard/                the dashboard (app.py) and its data builder (prepare_data.py)
+run_dashboard.bat         starts the dashboard on Windows
 ```
 
 ## How a row is matched
@@ -122,5 +148,5 @@ There are two lookups of abbreviations, not of names. `street_parser.TYPE_WORDS`
 
 ## Known limits
 
-- **The cadastre export is probably truncated** (exactly 1,048,575 rows). Re-run with a full CSV or parquet export before treating `CAD_HOUSE_NOT_FOUND` and `CAD_APARTMENT_NOT_FOUND` as real cadastre gaps.
-- **90,073 cadastre ids duplicate another id's address and object type.** SPR rows that point at them stay ambiguous until the cadastre team resolves them.
+- **225,538 cadastre ids share an address and object type with another id** (`CAD_DUPLICATE_ADDRESS`, sheet `cadastre_only_checks`). SPR rows pointing at them (48,714) stay ambiguous until the cadastre team keeps one id per address.
+- **Five rows appear twice in the cadastre parts** (same id, same values). They are kept once at load time; the step-1 log reports it.

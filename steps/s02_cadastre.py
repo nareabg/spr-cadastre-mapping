@@ -16,7 +16,8 @@ Cadastre issue codes
   CAD_STREET_NAME_MISSING      street type given, street name blank
   CAD_NONSTANDARD_HOUSE_NUMBER house holds words or lists ('2/1շենք,1-ին')
   CAD_LEADING_TRAILING_SPACES  a value starts or ends with a space
-  CAD_EXPORT_TRUNCATED         (file level) row count equals Excel's limit
+  (file level) cadastre_file_facts: rows per input part and whether a part
+  stops exactly at Excel's row limit
 """
 import pandas as pd
 
@@ -144,9 +145,7 @@ def run():
     """)
     out = con.execute("SELECT issue_code, count(*) n FROM cadastre_issues GROUP BY 1 ORDER BY 2 DESC").df()
 
-    truncated = len(cad) == config.EXCEL_MAX_DATA_ROWS
-    con.execute("CREATE OR REPLACE TABLE cadastre_file_facts AS SELECT ? AS n_rows, ? AS truncated_at_excel_limit",
-                [len(cad), truncated])
+    con.execute("CREATE OR REPLACE TABLE cadastre_file_facts AS SELECT * FROM cadastre_parts")
     log(STEP, f"cadastre streets: {len(streets):,}")
     for code, n in zip(out["issue_code"], out["n"]):
         log(STEP, f"   {code:32} {n:>9,} ids")
