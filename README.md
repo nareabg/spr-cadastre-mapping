@@ -49,10 +49,12 @@ Investigation helpers (`mapping/explore.py`, already loaded in the notebook):
 After a pipeline run, open the dashboard:
 
 ```
-streamlit run dashboard/app.py      # or double-click run_dashboard.bat on Windows
+streamlit run dashboard/app.py      # or double-click run_dashboard.bat (Windows) / run_dashboard.command (Mac)
 ```
 
 It opens in the browser at http://localhost:8501 and runs only on your computer. The first start takes about a minute: `dashboard/prepare_data.py` reads `output/` and the cadastre file(s) in `data/input/` and writes `dashboard/data/*.parquet`. It does this again by itself whenever the pipeline outputs are newer.
+
+`dashboard/data/` is committed to git, so someone who clones the repo can open the dashboard without running the pipeline; it then shows the results of the last run that was pushed. After a new pipeline run, push `dashboard/data/` again so the two stay in step.
 
 | tab | what you can do |
 |---|---|
@@ -92,6 +94,7 @@ output/                   results
 work/mapping.duckdb       intermediate tables, rebuilt by every run
 dashboard/                the dashboard (app.py) and its data builder (prepare_data.py)
 run_dashboard.bat         starts the dashboard on Windows
+run_dashboard.command     starts the dashboard on Mac
 ```
 
 ## How a row is matched

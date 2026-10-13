@@ -4,3 +4,4 @@ output/
 __pycache__/
 *.duckdb
 .ipynb_checkpoints/
+.DS_Store

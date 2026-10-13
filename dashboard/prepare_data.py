@@ -40,10 +40,15 @@ def _first_existing(paths):
 
 
 def needs_rebuild() -> bool:
+    """Build when the dashboard data is missing, or when a pipeline output is
+    newer than it. If the data files exist but output/ does not (a fresh git
+    clone that ships dashboard/data/), the existing data is used as is."""
     if not all((DATA / t).exists() for t in TARGETS):
         return True
+    if not any(p.exists() for p in SOURCES["result"]):      # no pipeline run here: nothing to rebuild from
+        return False
     built = min((DATA / t).stat().st_mtime for t in TARGETS)
-    inputs = [_first_existing(v) for v in SOURCES.values()] + list(config.CADASTRE_FILES)
+    inputs = [p for v in SOURCES.values() for p in v if p.exists()] + list(config.CADASTRE_FILES)
     return any(p.stat().st_mtime > built for p in inputs)
 
 
