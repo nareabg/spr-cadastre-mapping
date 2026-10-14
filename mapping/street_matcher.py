@@ -131,6 +131,12 @@ def _rule_fuzzy(q: Feat, pool: Pool):
 
 
 # ----------------------------------------------------------------- decision
+# Street and avenue count as one type (decided by Nare, 14 Oct 2026): in the
+# whole cadastre only 15 names exist as both in one settlement. Lanes, dead
+# ends and passages stay strict. A match through this pair is never 'high'.
+EQUIVALENT_TYPES = {frozenset({"փողոց", "պողոտա"})}
+
+
 def _type_filter(cands, spr_type):
     """-> (kept candidates, type_check)."""
     if spr_type is None:
@@ -138,6 +144,9 @@ def _type_filter(cands, spr_type):
     same = [c for c in cands if c[1].street.main_type == spr_type]
     if same:
         return same, "same type"
+    equiv = [c for c in cands if frozenset({c[1].street.main_type, spr_type}) in EQUIVALENT_TYPES]
+    if equiv:
+        return equiv, "street = avenue"
     untyped = [c for c in cands if c[1].street.main_type is None]
     if untyped:
         return untyped, "cadastre has no type"
@@ -265,7 +274,8 @@ class StreetMatcher:
                 return hit("ambiguous", same_best, tcheck, "fuzzy", reading, kind, tail, best_sc, runner)
             # a bare word with no type, initial or number ('ԵՐԵՎԱՆ') is never mapped by fuzzy
             bare = st.main_type is None and not st.sub and not q.initials and not q.digits and len(q.words) == 1
-            if best_sc >= FUZZY_MAP_SCORE and margin_ok and not bare \
+            # similar spelling AND street-vs-avenue: two doubts -> only suggested
+            if best_sc >= FUZZY_MAP_SCORE and margin_ok and not bare and tcheck != "street = avenue" \
                     and len(q.letters.replace(" ", "")) >= FUZZY_MIN_LETTERS:
                 return hit("found", [best_uid], tcheck, "fuzzy", reading, kind, tail, best_sc, runner)
             return hit("suggested", [best_uid], tcheck, "fuzzy", reading, kind, tail, best_sc, runner)

@@ -8,11 +8,11 @@ This project maps each row of the SPR address file (`spr_all_unmapped_addresses.
 
 | status | rows | % |
 |---|---:|---:|
-| mapped · high confidence | 24,108 | 3.93 |
-| mapped · medium confidence | 83,151 | 13.54 |
-| suggested (needs a yes from a reviewer) | 28,975 | 4.72 |
-| ambiguous (several cadastre ids fit) | 53,773 | 8.76 |
-| not_found | 326,096 | 53.10 |
+| mapped · high confidence | 25,048 | 4.08 |
+| mapped · medium confidence | 84,635 | 13.78 |
+| suggested (needs a yes from a reviewer) | 26,602 | 4.33 |
+| ambiguous (several cadastre ids fit) | 54,430 | 8.86 |
+| not_found | 325,388 | 52.99 |
 | out_of_scope (foreign or blank region) | 97,980 | 15.96 |
 
 The cadastre is now read from `cadastre_all_data_part1.xlsx` + `cadastre_all_data_part2.xlsx` (1,391,811 distinct ids). The street was found for 393,207 of the 516,103 rows inside Armenia; most of the rest stop at the house (135,900 rows) or the apartment (75,541 rows), because that number is not in the cadastre.
@@ -75,7 +75,7 @@ walkthrough.ipynb         step-by-step run with intermediate results
 run_all.py                runs steps 1-7 in one go
 config.py                 input / output paths
 mapping/                  shared logic
-  aliases.py              all aliases, copied from the earlier projects (none new)
+  aliases.py              all aliases: from the earlier projects, plus the ones Nare added (marked in the file)
   normalize.py            text, place and number normalisation
   street_parser.py        street text -> structured street, alternative readings
   street_matcher.py       the 7 street rules
@@ -88,7 +88,7 @@ steps/
   s04_match_streets.py    find the cadastre street
   s05_match_addresses.py  house, apartment, object type -> cadastre id
   s06_export.py           final status, issue categories, output files
-  s07_checks.py           integrity checks (the run fails if one fails)
+  s07_checks.py           14 integrity checks (the run fails if one fails)
 data/input/               the input files: SPR csv + cadastre part(s)
 output/                   results
 work/mapping.duckdb       intermediate tables, rebuilt by every run
@@ -105,20 +105,20 @@ run_dashboard.command     starts the dashboard on Mac
    | # | rule | allows | confidence |
    |---|---|---|---|
    | 1 | exact | identical cleaned name | high |
-   | 2 | alias | colleagues' renames (Գյումրի, Կապան) | high |
+   | 2 | alias | colleagues' renames (Գյումրի, Կապան) and Nare's (Արաբկիր: `ԲԱՂՐԱՄՅԱՆ` = `Մարշալ Բաղրամյան պողոտա`) | high |
    | 3 | double_letter | notebook typo list, doubled letters | high |
    | 4 | word_form | genitive endings (`ԳԱՌՆԻԻ` = `Գառնու`) | high |
    | 5 | extra_words | SPR words are a subset of the cadastre words (`ԱՆԴՐԱՆԻԿԻ` = `Զորավար Անդրանիկի`); generic words like `ՆՈՐ` or `ԹԱՂԱՄԱՍ` alone don't count | medium |
    | 6 | initial_for_name | `Ք.` = `ՔԸՐՔ`, or one side omits the initial; two different initials never match | medium |
    | 7 | fuzzy | letters only, score ≥ 90 and 4 points clear of the next street; never used for a bare word with no type | medium |
 
-   Numbers are never fuzzy. Street numbers, block codes (`Ա-1`, `110ա`) and lane numbers must be identical and in the same order. If several streets fit, the row is ambiguous. If the name is found but the type differs (`Փ.` vs `պողոտա`), the row is not mapped.
+   Numbers are never fuzzy. Street numbers, block codes (`Ա-1`, `110ա`) and lane numbers must be identical and in the same order. If several streets fit, the row is ambiguous. If the name is found but the type differs, the row is not mapped. One exception: street and avenue (`Փ.` / `պողոտա`) count as the same type; such rows are medium confidence at most, and a similar spelling (fuzzy) plus street-vs-avenue is only suggested. Lanes, dead ends and passages stay strict.
 
    An unnamed lane, dead end or passage written right after the street type (`ՔԱՆԱՔԵՌ 12 Փ. ԱՆՑՂ.`) is read as that kind of sub-street of the street, as the cadastre stores it (sub-street name blank); it never matches the main street itself.
 
    The text is read in several ways: `as_written`, `neighbourhood_street` (`Ա2 ԹՂՄ. 9 Փ.`), `lane_of_street` (`ԴՐՈՅԻ 4 ՆՐԲ.`), `without_place_prefix` and `without_house_numbers`.
 3. **Address** (`s05`). The house and apartment numbers must be identical after cleaning. If the SPR row has no apartment, the cadastre row must have no building number either. If several ids remain, the SPR house type (`Տ`, `Շ`, `ՀՈՂ`) picks the matching object. A house and its land plot count as compatible (`Տ`, `ՏՆԱԿ`, `ՀՈՂ` ↔ `բնակելի տուն`, `հողամաս`): a compatible object is mapped when no exact one exists, always with medium confidence. Any other object for these codes (a garage or shop for `ՏՆԱԿ`) is a conflict and only suggested. A single id that is a different kind of object, such as a garage or a land plot, becomes a suggestion.
-4. **Final** (`s06`). An address found outside the place the SPR row names becomes a suggestion: another Yerevan district, or a city-wide search because no district is given. `high` confidence needs rules 1-4, read as written or as neighbourhood + street, one cadastre id, and an object type that agrees. Every other mapped row is `medium`.
+4. **Final** (`s06`). An address is only ever mapped or suggested inside the settlement or Yerevan district the SPR row names. Found only in another Yerevan district → not_found (`STREET_FOUND_IN_OTHER_DISTRICT`, the SPR district may be wrong). Found by a city-wide search because SPR gives no district → suggestion. `high` confidence needs rules 1-4, read as written or as neighbourhood + street, one cadastre id, and an object type that agrees. Every other mapped row is `medium`.
 
 ## Outputs (`output/`)
 
