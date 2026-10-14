@@ -16,7 +16,13 @@ different address, never a near match.
                             the SPR house type, e.g. a garage for an apartment)
   several candidates     -> the SPR house type (Տ, Շ, ՀՈՂ ...) picks the one
                             whose cadastre object type matches; if exactly one
-                            matches -> mapped (address_pick = by_object_type)
+                            matches -> mapped (address_pick = by_object_type);
+                            if none matches exactly, one compatible object is
+                            taken the same way
+
+Object type check: same (exact type) | compatible (house / small house /
+land plot: Տ, ՏՆԱԿ, ՀՈՂ <-> բնակելի տուն, հողամաս) | different | unknown.
+A compatible object is mapped but never gets high confidence.
   otherwise              -> not mapped, with the reason
 
 Output: spr_address_match (one row per spr_id that reached this step).
@@ -38,10 +44,14 @@ HOUSE_TYPE_CODES = {
     "ԿԻՍԱԿԱՌՈՒՅՑ": "կիսակառույց", "ՇԻՆՈՒԹՅՈՒՆ": "շինություն",
 }
 APARTMENT_TYPES = {"բնակարան"}
+# House and land plot are one property: an SPR house may be registered in the
+# cadastre as its land plot and the reverse. These types count as compatible.
+HOUSE_PLOT_SPR_CODES = {"Տ", "ՏՈՒՆ", "ՏՆԱԿ", "ՀՈՂ"}
+HOUSE_PLOT_CAD_TYPES = {"բնակելի տուն", "հողամաս"}
 
 
 def object_check(spr_code, has_apartment, cad_house_type, cad_building_type) -> str:
-    """'same' | 'different' | 'unknown' (one side does not say)."""
+    """'same' | 'compatible' | 'different' | 'unknown' (one side does not say)."""
     if has_apartment:
         if cad_building_type is None or pd.isna(cad_building_type):
             return "unknown"
@@ -49,9 +59,14 @@ def object_check(spr_code, has_apartment, cad_house_type, cad_building_type) -> 
             return "same" if cad_building_type in APARTMENT_TYPES else "different"
         return "unknown"
     expected = HOUSE_TYPE_CODES.get(spr_code)
-    if expected is None or cad_house_type is None or pd.isna(cad_house_type):
+    if cad_house_type is None or pd.isna(cad_house_type):
         return "unknown"
-    return "same" if cad_house_type == expected else "different"
+    if expected is not None and cad_house_type == expected:
+        return "same"
+    if spr_code in HOUSE_PLOT_SPR_CODES and cad_house_type in HOUSE_PLOT_CAD_TYPES:
+        return "compatible"
+    # a house-group code (ՏՆԱԿ too) facing a garage, shop ... is a different object
+    return "different" if expected is not None or spr_code in HOUSE_PLOT_SPR_CODES else "unknown"
 
 
 def run():
@@ -93,8 +108,11 @@ def run():
     for spr_id, g in cand[n_cand > 1].groupby("spr_id", sort=False):
         ids = g.cadastre_id.tolist()
         same = g[g.obj == "same"]
+        compatible = g[g.obj == "compatible"]
         if len(same) == 1:
             results[spr_id] = ("mapped", same.cadastre_id.iloc[0], "by_object_type", "same", ids)
+        elif len(same) == 0 and len(compatible) == 1:
+            results[spr_id] = ("mapped", compatible.cadastre_id.iloc[0], "by_object_type", "compatible", ids)
         elif g.sig.nunique() == 1 or (len(same) > 1 and same.sig.nunique() == 1):
             results[spr_id] = ("cadastre_duplicate", None, None, None, ids)
         else:

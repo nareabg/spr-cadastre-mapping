@@ -71,6 +71,11 @@ def one(sql, params=None):
     return db().execute(sql, params or []).fetchone()[0]
 
 
+# a new pipeline run makes the loaded data stale: drop it, so a page refresh is enough
+if prepare_data.needs_rebuild():
+    db.clear()
+
+
 def distinct(table, col, where="TRUE", params=None):
     return q(f"SELECT DISTINCT {col} AS v FROM {table} WHERE {col} IS NOT NULL AND {where} ORDER BY 1",
              params)["v"].tolist()

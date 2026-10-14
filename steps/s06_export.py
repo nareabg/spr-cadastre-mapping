@@ -34,7 +34,7 @@ ISSUES = {
     "GEO_COMMUNITY_NOT_IN_CADASTRE": ("not_found", "REVIEW", "Community name does not exist in the cadastre for that region"),
     "GEO_SETTLEMENT_NOT_IN_CADASTRE": ("not_found", "REVIEW", "Settlement does not exist under that community in the cadastre"),
     "SPR_NO_STREET": ("not_found", "SPR", "Street text is blank or holds only a house word (ՏՆԱԿ, ՏՈՒՆ6)"),
-    "SPR_STREET_TEXT_UNPARSED": ("not_found", "SPR", "Street text holds extra parts that change the address (2 streets, lane without number, institution name)"),
+    "SPR_STREET_TEXT_UNPARSED": ("not_found", "SPR", "Street text holds parts that change the address and cannot be read safely (street + neighbourhood, street-lane-dead end, building or institution name, unknown abbreviation)"),
     "STREET_NOT_FOUND": ("not_found", "REVIEW", "No cadastre street with this name in the place (old name, typo beyond rules, or missing in cadastre)"),
     "STREET_TYPE_MISMATCH": ("not_found", "REVIEW", "Street name found, but SPR type (Փ., ՆՐԲ. ...) differs from the cadastre type"),
     "STREET_AMBIGUOUS": ("ambiguous", "REVIEW", "Several different cadastre streets fit the SPR street text"),

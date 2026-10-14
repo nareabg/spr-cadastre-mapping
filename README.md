@@ -4,15 +4,15 @@ This project maps each row of the SPR address file (`spr_all_unmapped_addresses.
 
 **Rule:** a row gets a `cadastre_id` only when exactly one cadastre address fits and the place, street, house and apartment all agree. Anything weaker becomes a suggestion or an issue, never a mapping.
 
-## Results (614,083 SPR rows, 13 Oct 2026 run, full cadastre in 2 parts)
+## Results (614,083 SPR rows, 14 Oct 2026 run, full cadastre in 2 parts)
 
 | status | rows | % |
 |---|---:|---:|
-| mapped · high confidence | 24,015 | 3.91 |
-| mapped · medium confidence | 80,131 | 13.05 |
-| suggested (needs a yes from a reviewer) | 30,425 | 4.95 |
-| ambiguous (several cadastre ids fit) | 55,119 | 8.98 |
-| not_found | 326,413 | 53.15 |
+| mapped · high confidence | 24,108 | 3.93 |
+| mapped · medium confidence | 83,151 | 13.54 |
+| suggested (needs a yes from a reviewer) | 28,975 | 4.72 |
+| ambiguous (several cadastre ids fit) | 53,773 | 8.76 |
+| not_found | 326,096 | 53.10 |
 | out_of_scope (foreign or blank region) | 97,980 | 15.96 |
 
 The cadastre is now read from `cadastre_all_data_part1.xlsx` + `cadastre_all_data_part2.xlsx` (1,391,811 distinct ids). The street was found for 393,207 of the 516,103 rows inside Armenia; most of the rest stop at the house (135,900 rows) or the apartment (75,541 rows), because that number is not in the cadastre.
@@ -114,8 +114,10 @@ run_dashboard.command     starts the dashboard on Mac
 
    Numbers are never fuzzy. Street numbers, block codes (`Ա-1`, `110ա`) and lane numbers must be identical and in the same order. If several streets fit, the row is ambiguous. If the name is found but the type differs (`Փ.` vs `պողոտա`), the row is not mapped.
 
+   An unnamed lane, dead end or passage written right after the street type (`ՔԱՆԱՔԵՌ 12 Փ. ԱՆՑՂ.`) is read as that kind of sub-street of the street, as the cadastre stores it (sub-street name blank); it never matches the main street itself.
+
    The text is read in several ways: `as_written`, `neighbourhood_street` (`Ա2 ԹՂՄ. 9 Փ.`), `lane_of_street` (`ԴՐՈՅԻ 4 ՆՐԲ.`), `without_place_prefix` and `without_house_numbers`.
-3. **Address** (`s05`). The house and apartment numbers must be identical after cleaning. If the SPR row has no apartment, the cadastre row must have no building number either. If several ids remain, the SPR house type (`Տ`, `Շ`, `ՀՈՂ`) picks the matching object. A single id that is a different kind of object, such as a garage or a land plot, becomes a suggestion.
+3. **Address** (`s05`). The house and apartment numbers must be identical after cleaning. If the SPR row has no apartment, the cadastre row must have no building number either. If several ids remain, the SPR house type (`Տ`, `Շ`, `ՀՈՂ`) picks the matching object. A house and its land plot count as compatible (`Տ`, `ՏՆԱԿ`, `ՀՈՂ` ↔ `բնակելի տուն`, `հողամաս`): a compatible object is mapped when no exact one exists, always with medium confidence. Any other object for these codes (a garage or shop for `ՏՆԱԿ`) is a conflict and only suggested. A single id that is a different kind of object, such as a garage or a land plot, becomes a suggestion.
 4. **Final** (`s06`). An address found outside the place the SPR row names becomes a suggestion: another Yerevan district, or a city-wide search because no district is given. `high` confidence needs rules 1-4, read as written or as neighbourhood + street, one cadastre id, and an object type that agrees. Every other mapped row is `medium`.
 
 ## Outputs (`output/`)

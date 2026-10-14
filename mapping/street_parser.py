@@ -135,7 +135,11 @@ def _segments(toks):
     segs, cur = [], []
     for i, t in enumerate(toks):
         typ = TYPE_WORDS.get(t)
-        if typ and cur:
+        if typ in SUB_TYPES and not cur and segs:
+            # unnamed lane / passage right after the street type:
+            # 'ՔԱՆԱՔԵՌ 12 Փ. ԱՆՑՂ.' = cadastre 'Քանաքեռի 12-րդ փողոց' + blank-name 'անցուղի'
+            segs.append(((), typ))
+        elif typ and cur:
             if t in AMBIGUOUS_TYPE_TOKENS:
                 nxt = toks[i + 1] if i + 1 < len(toks) else None
                 if nxt is not None and not (nxt.isdigit() or nxt in TYPE_WORDS or nxt in HOUSE_WORDS):
