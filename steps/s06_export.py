@@ -12,20 +12,24 @@ Table spr_mapping_result (one row per spr_id, same count as the SPR file):
 
 A row is mapped only when the address is found in the place the SPR row
 names (its settlement / Yerevan district). Found by a wider search because
-SPR gives no settlement / district -> suggested. Yerevan rows whose district
-is given are never mapped or suggested to another district: found only there
--> not_found (STREET_FOUND_IN_OTHER_DISTRICT, or STREET_NOT_FOUND).
+SPR gives no settlement -> suggested. Nare's rules (mapping/nare_rules.py):
+  #5 Yerevan rows whose district is given are never mapped or suggested to
+     another district: found only there -> not_found
+     (STREET_FOUND_IN_OTHER_DISTRICT, or STREET_NOT_FOUND).
+  #6 Yerevan rows with NO district are mapped (medium) when the address is
+     found once in the whole city by a non-fuzzy rule.
 
 high confidence = street found by exact / alias / double_letter / word_form,
 read as written (or as neighbourhood + street), exactly one cadastre id,
-and its object type agrees with the SPR house type. Every other mapped row
-is medium.
+its object type agrees with the SPR house type, the type is not street-vs-
+avenue and the SPR row names its place. Every other mapped row is medium.
 """
 import pandas as pd
 
 import config
 from mapping.db import connect, log
 from mapping.street_matcher import STRONG_RULES, STRONG_READINGS
+from mapping import nare_rules
 
 STEP = "06_export"
 
@@ -52,8 +56,10 @@ ISSUES = {
     "ADDRESS_SEVERAL_OBJECTS": ("ambiguous", "REVIEW", "Several cadastre ids at this address (house, land plot ...); SPR house type does not decide"),
     "OBJECT_TYPE_CONFLICT": ("suggested", "REVIEW", "The only cadastre id is a different object (land plot for a house, garage for an apartment)"),
     "ADDRESS_FOUND_ON_SUGGESTED_STREET": ("suggested", "REVIEW", "Street only suggested or type differs, but this exact house/apartment exists on it"),
-    "STREET_FOUND_IN_OTHER_DISTRICT": ("not_found", "SPR", "Yerevan: the address is not in the district the SPR names, but exists in another district (the SPR district may be wrong); never mapped or suggested"),
-    "GEO_PLACE_MISSING_FOUND_IN_WIDER_AREA": ("suggested", "REVIEW", "SPR gives no district / settlement; the address was found once in the whole city / community"),
+    "STREET_FOUND_IN_OTHER_DISTRICT": (("not_found", "SPR", "Yerevan: the address is not in the district the SPR names, but exists in another district (the SPR district may be wrong); never mapped or suggested")
+                                       if nare_rules.NEVER_ACROSS_YEREVAN_DISTRICTS else
+                                       ("suggested", "REVIEW", "Yerevan: street not in the district the SPR names; the address exists in another district")),
+    "GEO_PLACE_MISSING_FOUND_IN_WIDER_AREA": ("suggested", "REVIEW", "SPR gives no settlement (or no Yerevan district, when the street was only found by similar spelling); the address was found once in the whole community / city"),
 }
 
 ADDRESS_TO_ISSUE = {
@@ -74,6 +80,19 @@ def build_result(con):
     strong_rules = ", ".join(f"'{r}'" for r in STRONG_RULES)
     strong_reads = ", ".join(f"'{r}'" for r in STRONG_READINGS)
     addr_case = "\n".join(f"WHEN '{k}' THEN '{v}'" for k, v in ADDRESS_TO_ISSUE.items())
+    # nare_rules #5: a Yerevan row that names its district never uses another district
+    other_district = """
+            WHEN scope_widened AND match_method <> 'fuzzy' AND address_status = 'mapped'
+                 THEN 'STREET_FOUND_IN_OTHER_DISTRICT'
+            WHEN scope_widened                             THEN 'STREET_NOT_FOUND'""" \
+        if nare_rules.NEVER_ACROSS_YEREVAN_DISTRICTS else """
+            WHEN street_status = 'found' AND address_status = 'mapped' AND scope_widened
+                 THEN 'STREET_FOUND_IN_OTHER_DISTRICT'"""
+    # nare_rules #6: a Yerevan row without district is mapped when found once in the city
+    # (not when the street was only found by similar spelling)
+    never_across = "TRUE" if nare_rules.NEVER_ACROSS_YEREVAN_DISTRICTS else "FALSE"
+    no_district_ok = "geo_note = 'district_missing' AND match_method <> 'fuzzy'" \
+        if nare_rules.YEREVAN_NO_DISTRICT_MAP_IF_UNIQUE else "FALSE"
     con.execute(f"""
     CREATE OR REPLACE TABLE spr_mapping_result AS
     WITH j AS (
@@ -97,13 +116,11 @@ def build_result(con):
             WHEN geo_status = 'settlement_not_in_cadastre' THEN 'GEO_SETTLEMENT_NOT_IN_CADASTRE'
             WHEN street_status = 'no_street_in_spr'        THEN 'SPR_NO_STREET'
             WHEN street_status = 'no_readings'             THEN 'SPR_STREET_TEXT_UNPARSED'
-            -- Yerevan, district given: anything found only in ANOTHER district is never used
-            WHEN scope_widened AND match_method <> 'fuzzy' AND address_status = 'mapped'
-                 THEN 'STREET_FOUND_IN_OTHER_DISTRICT'
-            WHEN scope_widened                             THEN 'STREET_NOT_FOUND'
+            {other_district}
             WHEN street_status = 'not_found'               THEN 'STREET_NOT_FOUND'
             WHEN street_status = 'ambiguous'               THEN 'STREET_AMBIGUOUS'
             WHEN street_status = 'found' AND address_status = 'mapped' AND geo_note IS NOT NULL
+                 AND NOT ({no_district_ok})
                  THEN 'GEO_PLACE_MISSING_FOUND_IN_WIDER_AREA'
             WHEN street_status = 'found' AND address_status = 'mapped' THEN NULL
             WHEN street_status = 'found' THEN CASE address_status {addr_case} END
@@ -121,11 +138,13 @@ def build_result(con):
         CASE WHEN c.issue_category IS NOT NULL THEN NULL
              WHEN c.match_method IN ({strong_rules}) AND c.text_reading IN ({strong_reads})
                   AND c.address_pick = 'single' AND c.object_type_check = 'same'
-                  AND c.type_check <> 'street = avenue' THEN 'high'
+                  AND c.type_check <> 'street = avenue' AND c.geo_note IS NULL THEN 'high'
              ELSE 'medium' END                                                     AS match_confidence,
         c.issue_category, r.owner AS issue_owner,
-        CASE WHEN c.issue_category = 'GEO_PLACE_MISSING_FOUND_IN_WIDER_AREA' THEN c.cadastre_id
-             WHEN c.scope_widened THEN NULL                       -- other district: no suggestion
+        CASE WHEN c.issue_category IN ('GEO_PLACE_MISSING_FOUND_IN_WIDER_AREA', 'STREET_FOUND_IN_OTHER_DISTRICT')
+                  AND NOT {never_across} THEN c.cadastre_id
+             WHEN c.issue_category = 'GEO_PLACE_MISSING_FOUND_IN_WIDER_AREA' THEN c.cadastre_id
+             WHEN c.scope_widened AND {never_across} THEN NULL    -- other district: no suggestion
              ELSE c.suggested_cadastre_id END                                      AS suggested_cadastre_id,
         CASE WHEN c.issue_category IN ('CAD_DUPLICATE_ADDRESS', 'ADDRESS_SEVERAL_OBJECTS') THEN c.address_candidates END
                                                                                    AS candidate_cadastre_ids,

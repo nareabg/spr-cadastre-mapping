@@ -4,15 +4,15 @@ This project maps each row of the SPR address file (`spr_all_unmapped_addresses.
 
 **Rule:** a row gets a `cadastre_id` only when exactly one cadastre address fits and the place, street, house and apartment all agree. Anything weaker becomes a suggestion or an issue, never a mapping.
 
-## Results (614,083 SPR rows, 14 Oct 2026 run, full cadastre in 2 parts)
+## Results (614,083 SPR rows, 15 Oct 2026 run, full cadastre in 2 parts)
 
 | status | rows | % |
 |---|---:|---:|
-| mapped · high confidence | 25,048 | 4.08 |
-| mapped · medium confidence | 84,635 | 13.78 |
-| suggested (needs a yes from a reviewer) | 26,602 | 4.33 |
-| ambiguous (several cadastre ids fit) | 54,430 | 8.86 |
-| not_found | 325,388 | 52.99 |
+| mapped · high confidence | 32,167 | 5.24 |
+| mapped · medium confidence | 83,779 | 13.64 |
+| suggested (needs a yes from a reviewer) | 16,095 | 2.62 |
+| ambiguous (several cadastre ids fit) | 54,784 | 8.92 |
+| not_found | 329,278 | 53.62 |
 | out_of_scope (foreign or blank region) | 97,980 | 15.96 |
 
 The cadastre is now read from `cadastre_all_data_part1.xlsx` + `cadastre_all_data_part2.xlsx` (1,391,811 distinct ids). The street was found for 393,207 of the 516,103 rows inside Armenia; most of the rest stop at the house (135,900 rows) or the apartment (75,541 rows), because that number is not in the cadastre.
@@ -43,6 +43,24 @@ Investigation helpers (`mapping/explore.py`, already loaded in the notebook):
 | `houses_on(street_uid)` | all cadastre addresses on one street |
 | `sample('CAD_HOUSE_NOT_FOUND', 20)` | random rows of one issue category |
 | `q("SELECT ...")` | any SQL on the working tables |
+
+## Nare's decisions (`mapping/nare_rules.py`)
+
+Everything decided on top of the colleagues' logic is in one file, with its date and reason. To undo a decision, set its switch to `False` (or delete its lines) and rerun `run_all.py`.
+
+| # | decision | switch / list |
+|---|---|---|
+| 1 | an unnamed lane / passage after the street type is that sub-street (`ՔԱՆԱՔԵՌ 12 Փ. ԱՆՑՂ.`) | `PASSAGE_AFTER_STREET_TYPE` |
+| 2 | house and land plot are compatible object types (never high) | `HOUSE_PLOT_COMPATIBLE` |
+| 3 | a house-type SPR row against a garage, shop … is a conflict (suggested) | `HOUSE_GROUP_OTHER_OBJECT_IS_CONFLICT` |
+| 4 | street = avenue (never high; fuzzy + avenue only suggested) | `STREET_EQUALS_AVENUE` |
+| 5 | a Yerevan row that names its district never uses another district | `NEVER_ACROSS_YEREVAN_DISTRICTS` |
+| 6 | a Yerevan row without district is mapped (medium) when found once in the city, not by fuzzy | `YEREVAN_NO_DISTRICT_MAP_IF_UNIQUE` |
+| 7 | names that are never the same (`Բաղրամյան` ≠ `Բաղյան`, `Շիրակ` ≠ `Շիրազ` …) | `NEVER_SAME_NAMES` |
+| 8 | no similarity matching for dormitory texts (`ՀՄ`, `ՀՆԿՑ`) | `NO_FUZZY_WORDS` |
+| 9 | renames: Արաբկիր `ԲԱՂՐԱՄՅԱՆ` = `Մարշալ Բաղրամյան պողոտա` | `NARE_RENAMES` |
+| 10 | 271 street pairs confirmed in the fuzzy review | `NARE_STREET_ALIASES` |
+| 11 | street pairs rejected in the fuzzy review | `NARE_NOT_SAME` |
 
 ## Dashboard (for non-coders)
 
@@ -75,7 +93,8 @@ walkthrough.ipynb         step-by-step run with intermediate results
 run_all.py                runs steps 1-7 in one go
 config.py                 input / output paths
 mapping/                  shared logic
-  aliases.py              all aliases: from the earlier projects, plus the ones Nare added (marked in the file)
+  aliases.py              the colleagues' aliases and typo list (unchanged)
+  nare_rules.py           every decision Nare added, dated, each with an on/off switch
   normalize.py            text, place and number normalisation
   street_parser.py        street text -> structured street, alternative readings
   street_matcher.py       the 7 street rules
@@ -88,7 +107,7 @@ steps/
   s04_match_streets.py    find the cadastre street
   s05_match_addresses.py  house, apartment, object type -> cadastre id
   s06_export.py           final status, issue categories, output files
-  s07_checks.py           14 integrity checks (the run fails if one fails)
+  s07_checks.py           15 integrity checks (the run fails if one fails)
 data/input/               the input files: SPR csv + cadastre part(s)
 output/                   results
 work/mapping.duckdb       intermediate tables, rebuilt by every run
@@ -105,7 +124,7 @@ run_dashboard.command     starts the dashboard on Mac
    | # | rule | allows | confidence |
    |---|---|---|---|
    | 1 | exact | identical cleaned name | high |
-   | 2 | alias | colleagues' renames (Գյումրի, Կապան) and Nare's (Արաբկիր: `ԲԱՂՐԱՄՅԱՆ` = `Մարշալ Բաղրամյան պողոտա`) | high |
+   | 2 | alias | colleagues' renames (Գյումրի, Կապան) and Nare's renames and reviewed street pairs (`nare_rules.py`) | high |
    | 3 | double_letter | notebook typo list, doubled letters | high |
    | 4 | word_form | genitive endings (`ԳԱՌՆԻԻ` = `Գառնու`) | high |
    | 5 | extra_words | SPR words are a subset of the cadastre words (`ԱՆԴՐԱՆԻԿԻ` = `Զորավար Անդրանիկի`); generic words like `ՆՈՐ` or `ԹԱՂԱՄԱՍ` alone don't count | medium |

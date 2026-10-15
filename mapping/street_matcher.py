@@ -21,8 +21,9 @@ from collections import defaultdict
 from rapidfuzz import fuzz
 
 from .aliases import GLOBAL_STREET_ALIASES, SETTLEMENT_STREET_ALIASES, STREET_TYPO_FIXES
+from . import nare_rules
 from .normalize import colleague_norm, collapse_doubles, stem, fold, apply_typo_fixes, place_key
-from .street_parser import parse_spr_street, split_name, Street, GENERIC_WORDS
+from .street_parser import parse_spr_street, split_name, Street, GENERIC_WORDS, cadastre_street
 
 RULES = ["exact", "alias", "double_letter", "word_form", "extra_words", "initial_for_name", "fuzzy"]
 STRONG_RULES = {"exact", "alias", "double_letter", "word_form"}
@@ -35,6 +36,25 @@ FUZZY_MIN_LETTERS = 5     # shorter names are never mapped by fuzzy
 
 
 _GENERIC_STEMS = {stem(w) for w in GENERIC_WORDS}
+
+
+def _word_key(w):
+    """A word as the matcher compares it (Feat.words): folded, no doubled letters, no ending."""
+    return stem(collapse_doubles(fold(w).replace(" ", "")))
+
+
+# nare_rules #7: pairs of names that are never the same street
+_NEVER_SAME = [(_word_key(a), _word_key(b)) for a, b in nare_rules.NEVER_SAME_NAMES]
+# nare_rules #8: SPR words that switch fuzzy off
+_NO_FUZZY = {fold(w) for w in nare_rules.NO_FUZZY_WORDS}
+
+
+def _never_same(q_words, f_words):
+    qs, fs = set(q_words), set(f_words)
+    for a, b in _NEVER_SAME:
+        if (a in qs and b in fs and a not in fs) or (b in qs and a in fs and b not in fs):
+            return True
+    return False
 
 
 # ----------------------------------------------------------------- features
@@ -123,6 +143,8 @@ def _rule_fuzzy(q: Feat, pool: Pool):
             continue
         if q.initials and f.initials and q.initials != f.initials:
             continue
+        if _never_same(q.words, f.words):
+            continue
         sc = fuzz.token_sort_ratio(q.letters, f.letters)
         if sc >= FUZZY_SUGGEST_SCORE:
             scored.append((sc, uid, f))
@@ -131,10 +153,8 @@ def _rule_fuzzy(q: Feat, pool: Pool):
 
 
 # ----------------------------------------------------------------- decision
-# Street and avenue count as one type (decided by Nare, 14 Oct 2026): in the
-# whole cadastre only 15 names exist as both in one settlement. Lanes, dead
-# ends and passages stay strict. A match through this pair is never 'high'.
-EQUIVALENT_TYPES = {frozenset({"փողոց", "պողոտա"})}
+# street = avenue: nare_rules #4 (never 'high'; fuzzy + avenue is only suggested)
+EQUIVALENT_TYPES = {frozenset({"փողոց", "պողոտա"})} if nare_rules.STREET_EQUALS_AVENUE else set()
 
 
 def _type_filter(cands, spr_type):
@@ -173,8 +193,22 @@ class StreetMatcher:
             groups["region"][(r,)].append(e)
         self.pools = {lvl: {k: Pool(v) for k, v in d.items()} for lvl, d in groups.items()}
         self.street_alias = defaultdict(dict)
-        for sett, old, new in SETTLEMENT_STREET_ALIASES:      # later rows win, as in the source
+        for sett, old, new in SETTLEMENT_STREET_ALIASES + nare_rules.NARE_RENAMES:   # later rows win
             self.street_alias[place_key(sett)][colleague_norm(old)] = new
+        # nare_rules #10 / #11: reviewed pairs -> cadastre street_uid, per settlement and per community
+        uid_of = {(c, s, st): uid for uid, r, c, s, st in catalog}
+        self.nare_alias, self.nare_alias_comm = {}, defaultdict(set)
+        for c, s, t, st in nare_rules.NARE_STREET_ALIASES:
+            uid = uid_of.get((place_key(c), place_key(s), cadastre_street(*st)))
+            if uid is not None:
+                self.nare_alias[(place_key(c), place_key(s), fold(t))] = uid
+                self.nare_alias_comm[(place_key(c), fold(t))].add(uid)
+        self.nare_block, self.nare_block_comm = defaultdict(set), defaultdict(set)
+        for c, s, t, st in nare_rules.NARE_NOT_SAME:
+            uid = uid_of.get((place_key(c), place_key(s), cadastre_street(*st)))
+            if uid is not None:
+                self.nare_block[(place_key(c), place_key(s), fold(t))].add(uid)
+                self.nare_block_comm[(place_key(c), fold(t))].add(uid)
 
     # -- helpers
     def _alias_text(self, text, settlement_k):
@@ -206,24 +240,45 @@ class StreetMatcher:
             pool = self.pools[level].get(key)
             if pool is None:
                 continue
-            res = self._match_in_pool(text, readings, pool, key, place_names)
+            res = self._match_in_pool(text, readings, pool, key, place_names, widened=si > 0)
             if res is not None:
                 return {**base, **res, "searched_in": level, "scope_widened": si > 0}
         return {**base, "street_status": "not_found"}
 
-    def _match_in_pool(self, text, readings, pool, scope_key, place_names):
+    def _match_in_pool(self, text, readings, pool, scope_key, place_names, widened=False):
         def hit(status, uids, tcheck, rule, reading, kind, tail, score=None, runner=None):
             return {"street_status": status, "street_uid": uids[0] if status == "found" else None,
                     "candidate_uids": uids, "match_method": rule, "text_reading": reading,
                     "type_check": tcheck, "similarity_score": score, "runner_up_score": runner,
                     "tail_kind": kind, "tail": tail}
 
+        # nare_rules #11: a pair marked as NOT the same street is removed from this search
+        ft = fold(text)
+        if len(scope_key) == 3:
+            blocked = self.nare_block.get((scope_key[1], scope_key[2], ft))
+        elif len(scope_key) == 2:
+            blocked = self.nare_block_comm.get((scope_key[1], ft))
+        else:
+            blocked = None
+        if blocked:
+            pool = Pool([(u, f) for u, f in pool.entries if u not in blocked])
+
         # 1 exact
         for reading, st, kind, tail, hits in self._index_hits(readings, pool, "exact", pool.by_exact):
             return hit(*_decide(hits, st.main_type), "exact", reading, kind, tail)
 
-        # 2 alias (colleagues' renames only)
+        # 2 alias: Nare's reviewed pairs first (exact text in this settlement), then colleagues' renames
         settlement_k = scope_key[2] if len(scope_key) == 3 else None
+        if settlement_k is not None:
+            targets = {self.nare_alias[k]} if (k := (scope_key[1], settlement_k, ft)) in self.nare_alias else set()
+        elif len(scope_key) == 2 and not widened:       # whole community / city: Yerevan row without district
+            targets = self.nare_alias_comm.get((scope_key[1], ft), set())
+        else:
+            targets = set()
+        uids = sorted(u for u, f in pool.entries if u in targets)
+        if len(uids) == 1:
+            r0 = readings[0]
+            return hit("found", uids, "set by alias", "alias", r0[0], r0[2], r0[3])
         alias_text = self._alias_text(text, settlement_k)
         if alias_text:
             orig_type = readings[0][1].main_type
@@ -252,7 +307,9 @@ class StreetMatcher:
                 if hits:
                     return hit(*_decide(hits, st.main_type), rule, reading, kind, tail)
 
-        # 7 fuzzy
+        # 7 fuzzy (never for dormitory texts, nare_rules #8)
+        if _NO_FUZZY & set(ft.split()):
+            return None
         for reading, st, kind, tail in readings:
             q = Feat(st)
             scored = _rule_fuzzy(q, pool)

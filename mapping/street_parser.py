@@ -18,6 +18,7 @@ READINGS of it. Readings, in the order they are tried:
 """
 from dataclasses import dataclass
 from .normalize import fold
+from . import nare_rules
 
 # Abbreviation -> type word. Extends the notebook's TYPE_MAP with the
 # abbreviations that occur in the SPR file (ՄԿՐՇ., ԶՆԳՎ., Մ/Շ ...). These
@@ -135,8 +136,8 @@ def _segments(toks):
     segs, cur = [], []
     for i, t in enumerate(toks):
         typ = TYPE_WORDS.get(t)
-        if typ in SUB_TYPES and not cur and segs:
-            # unnamed lane / passage right after the street type:
+        if nare_rules.PASSAGE_AFTER_STREET_TYPE and typ in SUB_TYPES and not cur and segs:
+            # unnamed lane / passage right after the street type (nare_rules #1):
             # 'ՔԱՆԱՔԵՌ 12 Փ. ԱՆՑՂ.' = cadastre 'Քանաքեռի 12-րդ փողոց' + blank-name 'անցուղի'
             segs.append(((), typ))
         elif typ and cur:

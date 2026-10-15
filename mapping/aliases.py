@@ -250,3 +250,7 @@ STREET_TYPO_FIXES = {
     'ավան թումաննյան': 'ավան թումանյան', 'ավան սայաթ նովաա': 'ավան սայաթ նովա', 'կաբեելագործների': 'կաբելագործների',
     'կաբելագործնեերի': 'կաբելագործների',
 }
+
+
+# Nare's own decisions (her aliases, never-match pairs, rule switches) are
+# kept apart from the colleagues' aliases, in mapping/nare_rules.py.

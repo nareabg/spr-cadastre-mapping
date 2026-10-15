@@ -49,11 +49,26 @@ def run():
     same_house = m["house"].map(number_key) == m["c_house"].map(number_key)
     same_unit = m["apartment"].map(number_key) == m["c_building"].map(number_key)
     yerevan = m["region"].map(place_key) == place_key("Երևան")
-    same_district = ~yerevan | (m["community"].map(place_key) == m["c_settlement"].map(place_key))
+    no_district = m["community"].isna() | (m["community"].fillna("").str.strip() == "")   # nare_rules #6
+    same_district = ~yerevan | no_district | (m["community"].map(place_key) == m["c_settlement"].map(place_key))
     checks["mapped: same region (raw values)"] = bool(same_region.all())
     checks["mapped: same house number (raw values)"] = bool(same_house.all())
     checks["mapped: same apartment / building number (raw values)"] = bool(same_unit.all())
     checks["mapped Yerevan rows: same district (raw values)"] = bool(same_district.all())
+    # mapped and suggested ids stay inside the settlement / district the SPR row names
+    checks["mapped: found in the settlement / district the SPR names"] = one("""
+        SELECT count(*) = 0 FROM spr_mapping_result r JOIN spr_prepared p USING (spr_id)
+        JOIN cadastre_keys k ON k.cadastre_id = r.cadastre_id
+        WHERE p.region_k <> k.region_k OR p.community_k <> k.community_k
+           OR (p.settlement_k <> k.settlement_k AND p.settlement_k <> '')""")
+    checks["mapped without a place in SPR: only Yerevan rows without district (nare_rules #6)"] = one("""
+        SELECT count(*) = 0 FROM spr_mapping_result r JOIN spr_prepared p USING (spr_id)
+        WHERE r.match_status = 'mapped' AND p.geo_note IS NOT NULL AND p.geo_note <> 'district_missing'""")
+    checks["Yerevan rows with a district: no suggested id in another district"] = one("""
+        SELECT count(*) = 0 FROM spr_mapping_result r JOIN spr_prepared p USING (spr_id)
+        JOIN cadastre_keys k ON k.cadastre_id = r.suggested_cadastre_id
+        WHERE p.region_k = 'երեվան' AND p.settlement_k <> '' AND p.geo_note IS NULL
+          AND k.settlement_k <> p.settlement_k""")
 
     for name, ok in checks.items():
         log(STEP, ("PASS  " if ok else "FAIL  ") + name)

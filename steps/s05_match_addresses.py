@@ -31,6 +31,7 @@ import pandas as pd
 
 from mapping.db import connect, save_df, log
 from mapping.normalize import number_key
+from mapping import nare_rules
 
 STEP = "05_match_addresses"
 
@@ -44,10 +45,9 @@ HOUSE_TYPE_CODES = {
     "ԿԻՍԱԿԱՌՈՒՅՑ": "կիսակառույց", "ՇԻՆՈՒԹՅՈՒՆ": "շինություն",
 }
 APARTMENT_TYPES = {"բնակարան"}
-# House and land plot are one property: an SPR house may be registered in the
-# cadastre as its land plot and the reverse. These types count as compatible.
-HOUSE_PLOT_SPR_CODES = {"Տ", "ՏՈՒՆ", "ՏՆԱԿ", "ՀՈՂ"}
-HOUSE_PLOT_CAD_TYPES = {"բնակելի տուն", "հողամաս"}
+# house / land plot compatibility and conflicts: nare_rules #2 and #3
+HOUSE_PLOT_SPR_CODES = nare_rules.HOUSE_PLOT_SPR_CODES
+HOUSE_PLOT_CAD_TYPES = nare_rules.HOUSE_PLOT_CAD_TYPES
 
 
 def object_check(spr_code, has_apartment, cad_house_type, cad_building_type) -> str:
@@ -63,10 +63,12 @@ def object_check(spr_code, has_apartment, cad_house_type, cad_building_type) -> 
         return "unknown"
     if expected is not None and cad_house_type == expected:
         return "same"
-    if spr_code in HOUSE_PLOT_SPR_CODES and cad_house_type in HOUSE_PLOT_CAD_TYPES:
+    if nare_rules.HOUSE_PLOT_COMPATIBLE and spr_code in HOUSE_PLOT_SPR_CODES and cad_house_type in HOUSE_PLOT_CAD_TYPES:
         return "compatible"
     # a house-group code (ՏՆԱԿ too) facing a garage, shop ... is a different object
-    return "different" if expected is not None or spr_code in HOUSE_PLOT_SPR_CODES else "unknown"
+    if nare_rules.HOUSE_GROUP_OTHER_OBJECT_IS_CONFLICT and spr_code in HOUSE_PLOT_SPR_CODES:
+        return "different"
+    return "unknown" if expected is None else "different"
 
 
 def run():
